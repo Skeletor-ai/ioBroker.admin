@@ -382,6 +382,19 @@ class UsersList extends Component<UsersListProps, UsersListState> {
 
         if (originalUser) {
             user.common.password = originalUser.common.password;
+            // Read fresh from DB to preserve native data (e.g. webauthn credentials)
+            // that may have been set by other components after the UI loaded
+            try {
+                const freshUser = await this.props.socket.getObject(user._id);
+                if (freshUser?.native && Object.keys(freshUser.native).length > 0) {
+                    user.native = { ...freshUser.native, ...user.native };
+                }
+            } catch {
+                // fallback to in-memory state
+                if (originalUser.native && Object.keys(originalUser.native).length > 0) {
+                    user.native = { ...originalUser.native, ...user.native };
+                }
+            }
         } else {
             user.common.password = '';
         }

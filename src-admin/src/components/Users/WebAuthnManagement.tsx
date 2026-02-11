@@ -66,7 +66,7 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
     async loadCredentials(): Promise<void> {
         this.setState({ loading: true, error: '' });
         try {
-            const res = await fetch('../webauthn/credentials');
+            const res = await fetch('../login/webauthn/credentials', { credentials: 'same-origin' });
             if (res.ok) {
                 const credentials = await res.json();
                 this.setState({ credentials, loading: false });
@@ -82,9 +82,10 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
         this.setState({ adding: true, error: '' });
         try {
             // 1. Get registration options
-            const optionsRes = await fetch('../webauthn/register/options', {
+            const optionsRes = await fetch('../login/webauthn/register/options', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
             });
             if (!optionsRes.ok) {
                 throw new Error('Failed to get registration options');
@@ -96,9 +97,10 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
             const credential = await startRegistration({ optionsJSON: regOptions });
 
             // 3. Verify with server
-            const verifyRes = await fetch('../webauthn/register/verify', {
+            const verifyRes = await fetch('../login/webauthn/register/verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
                 body: JSON.stringify({
                     challengeId,
                     credential,
@@ -123,8 +125,9 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
 
     async deletePasskey(credentialId: string): Promise<void> {
         try {
-            const res = await fetch(`../webauthn/credentials/${encodeURIComponent(credentialId)}`, {
+            const res = await fetch(`../login/webauthn/credentials/${encodeURIComponent(credentialId)}`, {
                 method: 'DELETE',
+                credentials: 'same-origin',
             });
             if (!res.ok) {
                 throw new Error('Failed to delete');

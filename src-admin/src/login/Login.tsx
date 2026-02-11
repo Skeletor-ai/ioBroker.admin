@@ -276,7 +276,7 @@ export default class Login extends Component<object, LoginState> {
         try {
             const assertion = await startAuthentication({ optionsJSON: twoFAData.options });
 
-            const response = await fetch('../webauthn/2fa/verify', {
+            const response = await fetch('../login/webauthn/2fa/verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -303,7 +303,7 @@ export default class Login extends Component<object, LoginState> {
         this.setState({ inProcess: true, error: '' });
         try {
             // Get authentication options
-            const optionsRes = await fetch('../webauthn/login/options', {
+            const optionsRes = await fetch('../login/webauthn/login/options', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: this.state.username || undefined }),
@@ -318,9 +318,11 @@ export default class Login extends Component<object, LoginState> {
             const optionsData = await optionsRes.json();
             const { challengeId, ...authOptions } = optionsData;
 
+            console.log('[WebAuthn] authOptions:', JSON.stringify(authOptions));
             const assertion = await startAuthentication({ optionsJSON: authOptions });
+            console.log('[WebAuthn] assertion OK');
 
-            const verifyRes = await fetch('../webauthn/login/verify', {
+            const verifyRes = await fetch('../login/webauthn/login/verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ challengeId, credential: assertion }),
