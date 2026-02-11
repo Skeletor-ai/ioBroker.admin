@@ -254,7 +254,10 @@
     "loadingHideLogo": false,
     "loadingBackgroundImage": false,
     "doNotCheckPublicIP": false,
-    "ssoActive": false
+    "ssoActive": false,
+    "webauthnRpId": "",
+    "webauthnRpName": "ioBroker",
+    "webauthnExpectedOrigins": []
   },
   "notifications": [
     {

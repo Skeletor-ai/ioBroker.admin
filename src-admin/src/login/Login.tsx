@@ -6,6 +6,11 @@ import {
     Button,
     Checkbox,
     CircularProgress,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
     FormControlLabel,
     Grid2,
     IconButton,
@@ -15,9 +20,10 @@ import {
     Typography,
 } from '@mui/material';
 
-import { Visibility } from '@mui/icons-material';
+import { Fingerprint, Visibility } from '@mui/icons-material';
 
 import { type IobTheme, I18n, Connection } from '@iobroker/adapter-react-v5';
+import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser';
 
 export interface OAuth2Response {
     access_token: string;
@@ -99,6 +105,11 @@ declare global {
     }
 }
 
+interface TwoFAData {
+    challengeId: string;
+    options: any;
+}
+
 interface LoginState {
     inProcess: boolean;
     username: string;
@@ -107,6 +118,9 @@ interface LoginState {
     showPassword: boolean;
     error: string;
     loggingIn: boolean;
+    webauthnAvailable: boolean;
+    requires2FA: boolean;
+    twoFAData: TwoFAData | null;
 }
 
 export default class Login extends Component<object, LoginState> {
@@ -125,6 +139,9 @@ export default class Login extends Component<object, LoginState> {
             password: '',
             error: '',
             loggingIn,
+            webauthnAvailable: browserSupportsWebAuthn(),
+            requires2FA: false,
+            twoFAData: null,
         };
 
         // apply image
@@ -202,23 +219,123 @@ export default class Login extends Component<object, LoginState> {
 
     onLogin(): void {
         this.setState({ inProcess: true, error: '' }, async () => {
-            const response = await fetch('../oauth/token', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `grant_type=password&username=${encodeURIComponent(this.state.username)}&password=${encodeURIComponent(this.state.password)}&stayloggedin=${this.state.stayLoggedIn}&client_id=ioBroker`,
-            });
-            if (await Login.processTokenAnswer(this.state.stayLoggedIn, response)) {
-                // Do not allow entering again as redirection is running
-                // this.setState({ inProcess: false });
-            } else {
+            try {
+                const response = await fetch('../oauth/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `grant_type=password&username=${encodeURIComponent(this.state.username)}&password=${encodeURIComponent(this.state.password)}&stayloggedin=${this.state.stayLoggedIn}&client_id=ioBroker`,
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Check if 2FA is required
+                    if (data.requires2FA) {
+                        this.setState({
+                            inProcess: false,
+                            requires2FA: true,
+                            twoFAData: { challengeId: data.challengeId, options: data.options },
+                        });
+                        // Auto-trigger 2FA
+                        setTimeout(() => this.on2FAVerify(), 300);
+                        return;
+                    }
+
+                    // Normal token response
+                    if (data.access_token) {
+                        Connection.saveTokensStatic(data, this.state.stayLoggedIn);
+                        const urlObj = new URL(window.location.href);
+                        const href = urlObj.searchParams.get('href');
+                        window.location.href = href?.startsWith('#') ? `./${href}` : href || './';
+                        return;
+                    }
+                }
+
+                this.setState({
+                    inProcess: false,
+                    error: I18n.t('wrongPassword'),
+                });
+            } catch {
                 this.setState({
                     inProcess: false,
                     error: I18n.t('wrongPassword'),
                 });
             }
         });
+    }
+
+    async on2FAVerify(): Promise<void> {
+        const { twoFAData, stayLoggedIn } = this.state;
+        if (!twoFAData) {
+            return;
+        }
+
+        this.setState({ inProcess: true, error: '' });
+        try {
+            const assertion = await startAuthentication({ optionsJSON: twoFAData.options });
+
+            const response = await fetch('../webauthn/2fa/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    challengeId: twoFAData.challengeId,
+                    credential: assertion,
+                }),
+            });
+
+            if (await Login.processTokenAnswer(stayLoggedIn, response)) {
+                return;
+            }
+            this.setState({ inProcess: false, error: I18n.t('2FA verification failed'), requires2FA: false, twoFAData: null });
+        } catch (e) {
+            this.setState({
+                inProcess: false,
+                error: (e as Error).message || I18n.t('2FA verification failed'),
+                requires2FA: false,
+                twoFAData: null,
+            });
+        }
+    }
+
+    async onPasskeyLogin(): Promise<void> {
+        this.setState({ inProcess: true, error: '' });
+        try {
+            // Get authentication options
+            const optionsRes = await fetch('../webauthn/login/options', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: this.state.username || undefined }),
+            });
+
+            if (!optionsRes.ok) {
+                const err = await optionsRes.json();
+                this.setState({ inProcess: false, error: err.error || 'Failed to get passkey options' });
+                return;
+            }
+
+            const optionsData = await optionsRes.json();
+            const { challengeId, ...authOptions } = optionsData;
+
+            const assertion = await startAuthentication({ optionsJSON: authOptions });
+
+            const verifyRes = await fetch('../webauthn/login/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ challengeId, credential: assertion }),
+            });
+
+            if (await Login.processTokenAnswer(this.state.stayLoggedIn, verifyRes)) {
+                return;
+            }
+            this.setState({ inProcess: false, error: I18n.t('Passkey login failed') });
+        } catch (e) {
+            this.setState({
+                inProcess: false,
+                error: (e as Error).message || I18n.t('Passkey login failed'),
+            });
+        }
     }
 
     render(): JSX.Element {
@@ -393,6 +510,19 @@ export default class Login extends Component<object, LoginState> {
                                 {I18n.t('Use Single-Sign On')}
                             </Button>
                         ) : null}
+                        {this.state.webauthnAvailable ? (
+                            <Button
+                                onClick={() => this.onPasskeyLogin()}
+                                disabled={this.state.inProcess}
+                                fullWidth
+                                variant="outlined"
+                                color="primary"
+                                style={{ ...styles.submit, display: 'flex', gap: 8 }}
+                                startIcon={<Fingerprint />}
+                            >
+                                {I18n.t('Sign in with Passkey')}
+                            </Button>
+                        ) : null}
                     </Grid2>
                     <Box style={styles.marginTop}>
                         <Typography
@@ -435,6 +565,34 @@ export default class Login extends Component<object, LoginState> {
                 style={{ ...styles.root, ...style }}
             >
                 {content}
+                <Dialog open={this.state.requires2FA} onClose={() => this.setState({ requires2FA: false, twoFAData: null })}>
+                    <DialogTitle>{I18n.t('Two-Factor Authentication')}</DialogTitle>
+                    <DialogContent>
+                        <DialogContentText>
+                            {this.state.inProcess
+                                ? I18n.t('Please verify your identity with your passkey...')
+                                : I18n.t('Your account requires two-factor authentication.')}
+                        </DialogContentText>
+                        {this.state.inProcess && (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                                <CircularProgress />
+                            </Box>
+                        )}
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => this.setState({ requires2FA: false, twoFAData: null })}>
+                            {I18n.t('Cancel')}
+                        </Button>
+                        <Button
+                            onClick={() => this.on2FAVerify()}
+                            disabled={this.state.inProcess}
+                            variant="contained"
+                            startIcon={<Fingerprint />}
+                        >
+                            {I18n.t('Verify')}
+                        </Button>
+                    </DialogActions>
+                </Dialog>
             </Paper>
         );
     }

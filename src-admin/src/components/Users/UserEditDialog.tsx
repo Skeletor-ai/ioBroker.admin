@@ -15,6 +15,8 @@ import {
     PersonOff as PersonOffIcon,
 } from '@mui/icons-material';
 
+import WebAuthnManagement from './WebAuthnManagement';
+
 import { Utils, IconPicker, type Translate } from '@iobroker/adapter-react-v5';
 
 import { IOTextField, IOColorPicker } from '../IOFields/Fields';
@@ -288,6 +290,12 @@ export default class UserEditDialog extends Component<UserEditDialogProps, UserE
                         </Grid2>
                     </Grid2>
                     {!this.props.isNew ? this.renderOidcButton() : null}
+                    {!this.props.isNew ? (
+                        <WebAuthnManagement
+                            userId={this.props.getText(this.props.user.common.name)}
+                            canManage={true}
+                        />
+                    ) : null}
                 </DialogContent>
 
                 <DialogActions>

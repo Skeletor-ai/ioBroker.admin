@@ -551,6 +551,9 @@ class Web {
                     accessLifetime: this.settings.ttl,
                     refreshLifetime: 60 * 60 * 24 * 7, // 1 week (Maybe adjustable?)
                     noBasicAuth: this.settings.noBasicAuth,
+                    rpId: (this.adapter.config as any).webauthnRpId || undefined,
+                    rpName: (this.adapter.config as any).webauthnRpName || 'ioBroker',
+                    expectedOrigins: (this.adapter.config as any).webauthnExpectedOrigins || [],
                     loginPage: (req: Request): string => {
                         const isDev = req.url.includes('?dev');
                         let origin = req.url.split('origin=')[1];
