@@ -66,15 +66,34 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
     async loadCredentials(): Promise<void> {
         this.setState({ loading: true, error: '' });
         try {
-            const res = await fetch('../login/webauthn/credentials', { credentials: 'same-origin' });
-            if (res.ok) {
-                const credentials = await res.json();
-                this.setState({ credentials, loading: false });
-            } else {
-                this.setState({ loading: false, error: 'Failed to load passkeys' });
-            }
+            const [credsRes, twoFARes] = await Promise.all([
+                fetch('../login/webauthn/credentials', { credentials: 'same-origin' }),
+                fetch('../login/webauthn/2fa', { credentials: 'same-origin' }),
+            ]);
+            const credentials = credsRes.ok ? await credsRes.json() : [];
+            const twoFAData = twoFARes.ok ? await twoFARes.json() : { enabled: false };
+            this.setState({ credentials, twoFAEnabled: twoFAData.enabled, loading: false });
         } catch {
             this.setState({ loading: false, error: 'Failed to load passkeys' });
+        }
+    }
+
+    async toggleTwoFA(enabled: boolean): Promise<void> {
+        try {
+            const res = await fetch('../login/webauthn/2fa', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ enabled }),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                this.setState({ error: err.error || 'Failed to change 2FA setting' });
+                return;
+            }
+            this.setState({ twoFAEnabled: enabled });
+        } catch (e) {
+            this.setState({ error: (e as Error).message || 'Failed to change 2FA setting' });
         }
     }
 
@@ -201,14 +220,35 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
                         )}
 
                         {canManage && (
-                            <Button
-                                variant="outlined"
-                                startIcon={<AddIcon />}
-                                onClick={() => this.setState({ addDialogOpen: true, newKeyName: '' })}
-                                sx={{ mt: 1 }}
-                            >
-                                {I18n.t('Add Passkey')}
-                            </Button>
+                            <>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<AddIcon />}
+                                    onClick={() => this.setState({ addDialogOpen: true, newKeyName: '' })}
+                                    sx={{ mt: 1 }}
+                                >
+                                    {I18n.t('Add Passkey')}
+                                </Button>
+
+                                {credentials.length > 0 && (
+                                    <Box sx={{ mt: 2 }}>
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={this.state.twoFAEnabled}
+                                                    onChange={e => this.toggleTwoFA(e.target.checked)}
+                                                />
+                                            }
+                                            label={I18n.t('Use passkey as second factor (2FA)')}
+                                        />
+                                        <Typography variant="caption" color="textSecondary" display="block">
+                                            {this.state.twoFAEnabled
+                                                ? I18n.t('After password login, a passkey confirmation will be required')
+                                                : I18n.t('Passkey can be used for direct login without password')}
+                                        </Typography>
+                                    </Box>
+                                )}
+                            </>
                         )}
                     </>
                 )}
