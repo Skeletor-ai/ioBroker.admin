@@ -63,12 +63,25 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
         void this.loadCredentials();
     }
 
+    /** Get Authorization header from stored tokens */
+    getAuthHeader(): HeadersInit {
+        const tokenStr = globalThis.localStorage?.getItem('iob_tokens');
+        if (tokenStr) {
+            const parts = tokenStr.split(';');
+            if (parts[2]) {
+                return { Authorization: `Bearer ${parts[2]}` };
+            }
+        }
+        return {};
+    }
+
     async loadCredentials(): Promise<void> {
         this.setState({ loading: true, error: '' });
+        const authHeader = this.getAuthHeader();
         try {
             const [credsRes, twoFARes] = await Promise.all([
-                fetch('../login/webauthn/credentials', { credentials: 'same-origin' }),
-                fetch('../login/webauthn/2fa', { credentials: 'same-origin' }),
+                fetch('../login/webauthn/credentials', { credentials: 'same-origin', headers: authHeader }),
+                fetch('../login/webauthn/2fa', { credentials: 'same-origin', headers: authHeader }),
             ]);
             const credentials = credsRes.ok ? await credsRes.json() : [];
             const twoFAData = twoFARes.ok ? await twoFARes.json() : { enabled: false };
@@ -82,7 +95,7 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
         try {
             const res = await fetch('../login/webauthn/2fa', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeader() },
                 credentials: 'same-origin',
                 body: JSON.stringify({ enabled }),
             });
@@ -103,7 +116,7 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
             // 1. Get registration options
             const optionsRes = await fetch('../login/webauthn/register/options', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeader() },
                 credentials: 'same-origin',
             });
             if (!optionsRes.ok) {
@@ -118,7 +131,7 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
             // 3. Verify with server
             const verifyRes = await fetch('../login/webauthn/register/verify', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeader() },
                 credentials: 'same-origin',
                 body: JSON.stringify({
                     challengeId,
@@ -146,6 +159,7 @@ export default class WebAuthnManagement extends Component<WebAuthnManagementProp
         try {
             const res = await fetch(`../login/webauthn/credentials/${encodeURIComponent(credentialId)}`, {
                 method: 'DELETE',
+                headers: this.getAuthHeader(),
                 credentials: 'same-origin',
             });
             if (!res.ok) {
